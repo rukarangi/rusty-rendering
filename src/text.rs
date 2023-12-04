@@ -57,7 +57,7 @@ impl TextVecs {
         return result;
     }
 
-    pub fn from_quads(quads: Vec<CharacterQuad>) -> Self {
+    pub fn from_quads(quads: &Vec<CharacterQuad>) -> Self {
         quads.iter()
             .fold((Self::default(), 0), |a, e| {
                 let mut tv = a.0;
@@ -97,6 +97,7 @@ impl TextVecs {
             length,
         }
     }
+
 }
 
 pub fn character_quads_from_str(text: &str) -> Vec<CharacterQuad> {

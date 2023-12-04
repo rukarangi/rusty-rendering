@@ -42,5 +42,6 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
         color_out = vec3(1.0, 0.0, 0.0);
     }
 
-    return vec4<f32>(color_out, a);
+    return vec4<f32>(color_out, 0.5);
+    //return color;
 }

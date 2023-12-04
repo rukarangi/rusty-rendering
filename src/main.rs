@@ -8,6 +8,7 @@ use winit::{
     window::{Window, WindowBuilder, self},
 };
 use cgmath::prelude::*;
+use std::time;
 
 
 mod text;
@@ -23,7 +24,7 @@ async fn run() {
     let window = WindowBuilder::new().build(&event_loop).unwrap();
 
     let mut state = State::new(window).await;
-
+    let mut last_render_time = time::Instant::now();
     event_loop.run(move |event, _, control_flow| {
         match event {
             Event::WindowEvent {
@@ -51,7 +52,10 @@ async fn run() {
                 }
             },
             Event::RedrawRequested(window_id) if window_id == state.window().id() => {
-                state.update();
+                let now = time::Instant::now();
+                let dt = now - last_render_time;
+                last_render_time = now;
+                state.update(dt);
                 match state.render() {
                     Ok(_) => {},
                     Err(wgpu::SurfaceError::Lost) => state.resize(state.size),
@@ -75,11 +79,13 @@ struct State {
     size: winit::dpi::PhysicalSize<u32>,
     window: Window,
     t_render_pipeline: wgpu::RenderPipeline,
+    t_bind_group: wgpu::BindGroup,
+    t_quads: Vec<CharacterQuad>,
     t_texture: texture::Texture,
     t_vertices: wgpu::Buffer,
     t_indices: wgpu::Buffer,
-    t_bind_group: wgpu::BindGroup,
     test_len: u32,
+    one_update: bool,
 }
 
 impl State {
@@ -184,23 +190,26 @@ impl State {
             }
         );*/
 
-        let test_quad = text::CharacterQuad {
-            position: [-0.5, 0.5, 0.0],
-            size: [0.1, 0.1],
-            character: 6,
-        };
         let test_quad2 = text::CharacterQuad {
-            position: [-0.4, 0.5, 0.0],
+            position: [-1.0, 0.5, 0.0],
             size: [0.1, 0.1],
             character: 10,
         };
 
-        let test_str = "Hello World";
+        let test_quad = text::CharacterQuad {
+            position: [-0.5, 1.05, 0.0],
+            size: [0.2, 0.1],
+            character: 6,
+        };
+        
+
+        let test_str = "";
 
         //let test_vecs = text::TextVecs::from_quad(test_quad, None);
         //let test_vecs = text::TextVecs::from_quads(vec![test_quad, test_quad2]);
-        let test_quads = text::character_quads_from_str(test_str);
-        let test_vecs = text::TextVecs::from_quads(test_quads);
+        let mut t_quads = text::character_quads_from_str(test_str);
+        //test_quads.push(test_quad);
+        let test_vecs = text::TextVecs::from_quads(&t_quads);
 
         let test_bufs = test_vecs.to_buffers(&device);
 
@@ -281,6 +290,8 @@ impl State {
             )
         };
 
+        let one_update = false;
+
         State {
             surface,
             device,
@@ -289,11 +300,13 @@ impl State {
             size,
             window,
             t_render_pipeline,
+            t_bind_group,
+            t_quads,
             t_texture,
             t_vertices,
             t_indices,
-            t_bind_group,
             test_len,
+            one_update,
         }
     }
 
@@ -314,7 +327,42 @@ impl State {
         false
     }
 
-    fn update(&mut self) {
+    fn update(&mut self, dt: time::Duration) {
+        /*
+        I think I will structure the renderer to hold abstracted quads
+        then each from turn in to buffer only the ones that need to be.
+        --------- see remarkable diagram ---------
+         */
+
+        if !self.one_update {  
+            self.one_update = true;
+
+            let test_quad = text::CharacterQuad {
+                position: [-0.5, 1.05, 0.0],
+                size: [0.2, 0.1],
+                character: 6,
+            };
+            
+
+            let test_str = "Hello Tom";
+
+            //let test_vecs = text::TextVecs::from_quad(test_quad, None);
+            //let test_vecs = text::TextVecs::from_quads(vec![test_quad, test_quad2]);
+            let mut test_quads = text::character_quads_from_str(test_str);
+            test_quads.push(test_quad);
+            let test_vecs = text::TextVecs::from_quads(&test_quads);
+
+            let test_bufs = test_vecs.to_buffers(&self.device);
+
+            let (t_vertices, t_indices , test_len) = 
+                (test_bufs.vertices, test_bufs.indices, test_bufs.length);
+            
+            self.t_vertices = t_vertices;
+            self.t_indices = t_indices;
+            self.test_len = test_len;
+        }
+
+        println!("\n{:?}", dt.as_millis())
 
     }
 
@@ -398,8 +446,8 @@ fn create_render_pipeline(
                     Some(wgpu::ColorTargetState {
                         format: color_format,
                         blend: Some(wgpu::BlendState {
-                            alpha: wgpu::BlendComponent::REPLACE,
-                            color: wgpu::BlendComponent::REPLACE,
+                            alpha: wgpu::BlendComponent::OVER,
+                            color: wgpu::BlendComponent::OVER,
                         }),
                         write_mask: wgpu::ColorWrites::ALL,
                     })
