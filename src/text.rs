@@ -97,10 +97,9 @@ impl TextVecs {
             length,
         }
     }
-
 }
 
-pub fn character_quads_from_str(text: &str) -> Vec<CharacterQuad> {
+pub fn character_quads_from_str(text: &str, pos: Vec<f32>, fsize: f32) -> Vec<CharacterQuad> {
     let CHARACTER_HASH: HashMap<char, u32> = HashMap::from(
         [
             ('A', 0),
@@ -167,9 +166,9 @@ pub fn character_quads_from_str(text: &str) -> Vec<CharacterQuad> {
                 Some(v) => *v,
                 None => 0,
             };
-            let size = [0.1, 0.1];
+            let size = [fsize, fsize];
 
-            let position = [-0.5 + (0.1 * i as f32), 0.5, 0.0];
+            let position = [pos[0] + (fsize * i as f32), pos[1], 0.0];
 
             CharacterQuad {
                 position,
