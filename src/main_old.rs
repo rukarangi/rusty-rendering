@@ -1,12 +1,16 @@
 
-
+use camera::Camera;
+use text::CharacterQuad;
+use wgpu::Label;
 use wgpu::util::DeviceExt;
 use winit::{
     event::*,
-    event_loop::ControlFlow,
-    window::Window,
+    event_loop::{ControlFlow, EventLoop},
+    window::{Window, WindowBuilder, self},
 };
+use cgmath::prelude::*;
 use std::time;
+
 
 mod text;
 mod texture;
@@ -16,34 +20,12 @@ mod camera;
 fn main() {
     pollster::block_on(run());
 }
-
-struct UIRenderable;
-
 async fn run() {
     env_logger::init();
-    let event_loop = winit::event_loop::EventLoop::new();
-    let window = winit::window::WindowBuilder::new().build(&event_loop).unwrap();
+    let event_loop = EventLoop::new();
+    let window = WindowBuilder::new().build(&event_loop).unwrap();
 
     let mut state = State::new(window).await;
-
-    // Testing out new system
-
-    let a_quad = text::CharacterQuad {
-        position: [100.0, 100.0, 0.0],
-        size: [50.0, 100.0],
-        character: 0,  
-    };
-
-    let a = state.world.spawn((UIRenderable, a_quad));
-
-    state.ui_changed = true;
-
-    state.camera.modify_position(10.0, 10.0);
-    state.camera_uniform.update_proj(&state.camera);
-    state.queue.write_buffer(&state.camera_buffer, 0, bytemuck::cast_slice(&[state.camera_uniform]));
-
-    // ----------------------
-
     let mut last_render_time = time::Instant::now();
     event_loop.run(move |event, _, control_flow| {
         match event {
@@ -91,8 +73,6 @@ async fn run() {
     });
 }
 
-type RenderGroup = (wgpu::Buffer, wgpu::Buffer, u32);
-
 struct State {
     surface: wgpu::Surface,
     device: wgpu::Device,
@@ -100,16 +80,18 @@ struct State {
     config: wgpu::SurfaceConfiguration,
     size: winit::dpi::PhysicalSize<u32>,
     window: Window,
-    world: hecs::World,
-    ui_layer: text::TextBuffers,
-    ui_changed: bool,
-    ui_render_pipeline: wgpu::RenderPipeline,
-    camera_bind_group: wgpu::BindGroup,
-    camera: camera::Camera,
-    camera_uniform: camera::CameraUniform,
-    camera_buffer: wgpu::Buffer,
-    ui_bind_group: wgpu::BindGroup,
-    ui_texture: texture::Texture,
+    t_render_pipeline: wgpu::RenderPipeline,
+    t_bind_group: wgpu::BindGroup,
+    t_camera: camera::Camera,
+    t_camera_uniform: camera::CameraUniform,
+    t_camera_bind_group: wgpu::BindGroup,
+    t_camera_buffer: wgpu::Buffer,
+    t_quads: Vec<CharacterQuad>,
+    t_texture: texture::Texture,
+    t_vertices: wgpu::Buffer,
+    t_indices: wgpu::Buffer,
+    test_len: u32,
+    one_update: bool,
 }
 
 impl State {
@@ -160,22 +142,79 @@ impl State {
         };
         surface.configure(&device, &config);
 
-        let world = hecs::World::new();
+        // Test Rendering Testing
+        // ----------------------
 
-        let camera = camera::Camera::new(800.0, 600.0, 0.0, 0.0);
+        /*let scale: f32 = 1.0 / 9.0;
 
-        let mut camera_uniform = camera::CameraUniform::new();
-        camera_uniform.update_proj(&camera);
+        let x: f32 = 2.0;
+        let y: f32 = 1.0;
 
-        let camera_buffer = device.create_buffer_init(
+        let tl = [x * scale, y * scale];
+        let bl = [x * scale, y * scale + scale];
+        let br = [x * scale + scale, y * scale + scale];
+        let tr = [x * scale + scale, y * scale];
+
+        let test_vertex = &[
+            text::CharacterVertex { position: [-0.5, 0.5, 0.0], tex_coords: tl }, //[0.0, 0.0] }, // TOP LEFT
+            text::CharacterVertex { position: [-0.5, -0.5, 0.0], tex_coords: bl }, //[0.0, 1.0/16.0] }, // BOTTOM LEFT
+            text::CharacterVertex { position: [0.5, -0.5, 0.0], tex_coords: br }, //[1.0/16.0, 1.0/16.0] }, // BOTTOM RIGHT
+            text::CharacterVertex { position: [0.5, 0.5, 0.0], tex_coords: tr }, //[1.0/16.0, 0.0] }, // TOP RIGHT
+        
+            text::CharacterVertex { position: [-0.25, 0.5, 0.0], tex_coords: tl }, // TOP LEFT
+            text::CharacterVertex { position: [-0.25, -0.5, 0.0], tex_coords: bl }, // BOTTOM LEFT
+            text::CharacterVertex { position: [0.75, -0.5, 0.0], tex_coords: br }, // BOTTOM RIGHT
+            text::CharacterVertex { position: [0.75, 0.5, 0.0], tex_coords: tr }, // TOP RIGHT
+        ];
+
+        /*let test_vertex = &[
+            text::CharacterVertex { position: [0.0, 0.5, 0.0], tex_coords: [0.0, 0.0] },
+            text::CharacterVertex { position: [-0.5, -0.5, 0.0], tex_coords: [0.0, 0.0] },
+            text::CharacterVertex { position: [0.5, -0.5, 0.0], tex_coords: [0.0, 0.0] },
+        ];*/
+
+        let test_indices = &[
+            1, 3, 0, 1, 2, 3,
+            5, 7, 4, 5, 6, 7
+        ];
+
+        let test_len = test_indices.len() as u32;
+
+        let t_vertices = device.create_buffer_init(
+            &wgpu::util::BufferInitDescriptor {
+                label: Some("Vertex Buffer"),
+                contents: bytemuck::cast_slice(test_vertex),
+                usage: wgpu::BufferUsages::VERTEX,
+            }
+        );
+
+        let t_indices = device.create_buffer_init(
+            &wgpu::util::BufferInitDescriptor {
+                label: Some("Index Buffer"),
+                contents: bytemuck::cast_slice(test_indices),
+                usage: wgpu::BufferUsages::INDEX,
+            }
+        );*/
+
+        // CAMERA TESTING STUFF
+
+        let t_camera = camera::Camera::new(0.0, 800.0, 0.0, 600.0);
+
+        let mut t_camera_uniform = camera::CameraUniform::new();
+        t_camera_uniform.update_proj(&t_camera);
+
+        println!("{:?}", t_camera_uniform.view_proj);
+
+        let t_camera_buffer = device.create_buffer_init(
             &wgpu::util::BufferInitDescriptor {
                 label: Some("Camera Buffer"),
-                contents: bytemuck::cast_slice(&[camera_uniform]),
+                contents: bytemuck::cast_slice(&[t_camera_uniform]),
                 usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
             }
         );
 
-        let camera_bind_group_layout = device.create_bind_group_layout(
+
+        let t_camera_bind_group_layout = device.create_bind_group_layout(
             &wgpu::BindGroupLayoutDescriptor {
                 entries: &[
                 wgpu::BindGroupLayoutEntry {
@@ -193,29 +232,53 @@ impl State {
             }
         );
 
-        let camera_bind_group = device.create_bind_group(
+        let t_camera_bind_group = device.create_bind_group(
             &wgpu::BindGroupDescriptor { 
                 label: Some("t_camera_bind_group"), 
-                layout: &camera_bind_group_layout, 
+                layout: &t_camera_bind_group_layout, 
                 entries: &[
                     wgpu::BindGroupEntry {
                         binding: 0,
-                        resource: camera_buffer.as_entire_binding(),
+                        resource: t_camera_buffer.as_entire_binding(),
                     }
                 ],
             }
         );
 
-        let ui_empty = text::TextVecs {vertices: Vec::new(), indices: Vec::new()};
-        let ui_layer = ui_empty.to_buffers(&device);
-        let ui_changed = false;
+        // --------------------
 
-        let ui_texture = 
+        let test_quad2 = text::CharacterQuad {
+            position: [-1.0, 0.5, 0.0],
+            size: [0.1, 0.1],
+            character: 10,
+        };
+
+        let test_quad = text::CharacterQuad {
+            position: [-0.5, 1.05, 0.0],
+            size: [0.2, 0.1],
+            character: 6,
+        };
+        
+
+        let test_str = "";
+
+        //let test_vecs = text::TextVecs::from_quad(test_quad, None);
+        //let test_vecs = text::TextVecs::from_quads(vec![test_quad, test_quad2]);
+        let mut t_quads = text::character_quads_from_str(test_str, vec![0.0,0.0], 0.0);
+        //test_quads.push(test_quad);
+        let test_vecs = text::TextVecs::from_quads(&t_quads);
+
+        let test_bufs = test_vecs.to_buffers(&device);
+
+        let (t_vertices, t_indices , test_len) = 
+            (test_bufs.vertices, test_bufs.indices, test_bufs.length);
+
+        let t_texture =
             resources::load_texture("texture1_letters.png", &device, &queue)
             .await
             .unwrap();
 
-        let ui_texture_bind_group_layout = device.create_bind_group_layout(
+        let t_texture_bind_group_layout = device.create_bind_group_layout(
             &wgpu::BindGroupLayoutDescriptor {
                 entries: &[
                     wgpu::BindGroupLayoutEntry {
@@ -235,39 +298,39 @@ impl State {
                         count: None,
                     },
                 ],
-                label: Some("ui_texture_bind_group_layout"),
+                label: Some("text_texture_bind_group_layout"),
             }
         );
 
-        let ui_bind_group = device.create_bind_group(
+        let t_bind_group = device.create_bind_group(
             &wgpu::BindGroupDescriptor {
-                layout: &ui_texture_bind_group_layout,
+                layout: &t_texture_bind_group_layout,
                 entries: &[
                     wgpu::BindGroupEntry {
                         binding: 0,
-                        resource: wgpu::BindingResource::TextureView(&ui_texture.view),
+                        resource: wgpu::BindingResource::TextureView(&t_texture.view),
                     },
                     wgpu::BindGroupEntry {
                         binding: 1,
-                        resource: wgpu::BindingResource::Sampler(&ui_texture.sampler),
+                        resource: wgpu::BindingResource::Sampler(&t_texture.sampler),
                     }
                 ],
-                label: Some("ui_texture_bind_group"),
+                label: Some("t_bind_group"),
             }
         );
 
-        let ui_render_pipeline_layout = device.create_pipeline_layout(
+        let t_render_pipeline_layout = device.create_pipeline_layout(
             &wgpu::PipelineLayoutDescriptor {
                 label: Some("Render Pipeline Layout"),
                 bind_group_layouts: &[
-                    &ui_texture_bind_group_layout,
-                    &camera_bind_group_layout,
+                    &t_texture_bind_group_layout,
+                    &t_camera_bind_group_layout,
                 ],
                 push_constant_ranges: &[],
             }
         );
 
-        let ui_render_pipeline = {
+        let t_render_pipeline = {
             let shader = wgpu::ShaderModuleDescriptor {
                 label: Some("Text Shader"),
                 source: wgpu::ShaderSource::Wgsl(include_str!("text.wgsl").into()),
@@ -275,7 +338,7 @@ impl State {
 
             create_render_pipeline(
                 &device,
-                &ui_render_pipeline_layout,
+                &t_render_pipeline_layout,
                 config.format,
                 None,
                 &[
@@ -285,6 +348,8 @@ impl State {
             )
         };
 
+        let one_update = false;
+
         State {
             surface,
             device,
@@ -292,16 +357,18 @@ impl State {
             config,
             size,
             window,
-            world,
-            camera,
-            ui_layer,
-            ui_changed,
-            ui_render_pipeline,
-            camera_bind_group,
-            camera_uniform,
-            camera_buffer,
-            ui_bind_group,
-            ui_texture,
+            t_render_pipeline,
+            t_bind_group,
+            t_camera,
+            t_camera_uniform,
+            t_camera_bind_group,
+            t_camera_buffer,
+            t_quads,
+            t_texture,
+            t_vertices,
+            t_indices,
+            test_len,
+            one_update,
         }
     }
 
@@ -309,18 +376,19 @@ impl State {
         &self.window
     }
 
-    fn resize(&mut self, new_size: winit::dpi::PhysicalSize<u32>) { 
+    fn resize(&mut self, new_size: winit::dpi::PhysicalSize<u32>) {
         if new_size.width > 0 && new_size.height > 0 {
             self.size = new_size;
             self.config.width = new_size.width;
             self.config.height = new_size.height;
             self.surface.configure(&self.device, &self.config);
 
-            self.camera.width = new_size.width as f32;
-            self.camera.height = new_size.height as f32;
+            self.t_camera.right = new_size.width as f32;
+            self.t_camera.top = new_size.height as f32;
 
-            self.camera_uniform.update_proj(&self.camera);
-            self.queue.write_buffer(&self.camera_buffer, 0, bytemuck::cast_slice(&[self.camera_uniform]));
+            self.t_camera_uniform.update_proj(&self.t_camera);
+            self.queue.write_buffer(&self.t_camera_buffer, 0, bytemuck::cast_slice(&[self.t_camera_uniform]));
+
         }
     }
 
@@ -329,17 +397,43 @@ impl State {
     }
 
     fn update(&mut self, dt: time::Duration) {
-        if self.ui_changed {
-            let mut elements: Vec<text::CharacterQuad> = Vec::new();
+        /*
+        I think I will structure the renderer to hold abstracted quads
+        then each from turn in to buffer only the ones that need to be.
+        --------- see remarkable diagram ---------
+         */
 
-            for (id, (ui, quad)) in self.world.query_mut::<(&UIRenderable, &text::CharacterQuad)>() {
-                elements.push(*quad);
-            }
+        if !self.one_update {  
+            println!("added some stuff");
+            self.one_update = true;
 
-            self.ui_layer = text::TextVecs::from_quads(&elements).to_buffers(&self.device);
+            let test_quad = text::CharacterQuad {
+                position: [400.0, 400.0, 0.0],
+                size: [50.0, 50.0],
+                character: 6,
+            };
+            
 
-            self.ui_changed = false;
+            let test_str = "Hello Tom";
+
+            //let test_vecs = text::TextVecs::from_quad(test_quad, None);
+            //let test_vecs = text::TextVecs::from_quads(vec![test_quad, test_quad2]);
+            let mut test_quads = text::character_quads_from_str(test_str, vec![50.0, 250.0], 20.0);
+            test_quads.push(test_quad);
+            let test_vecs = text::TextVecs::from_quads(&test_quads);
+
+            let test_bufs = test_vecs.to_buffers(&self.device);
+
+            let (t_vertices, t_indices , test_len) = 
+                (test_bufs.vertices, test_bufs.indices, test_bufs.length);
+            
+            self.t_vertices = t_vertices;
+            self.t_indices = t_indices;
+            self.test_len = test_len;
         }
+
+        //println!("\n{:?}", dt.as_millis())
+
     }
 
     fn render(&mut self) -> Result<(), wgpu::SurfaceError> {
@@ -374,14 +468,22 @@ impl State {
                 depth_stencil_attachment: None,
             });
 
+            /*
+            To add line of sight stuff, render all one screen to one buffer
+            then using same vertices, but differnt indices, i.e the ones that block light
+            hmm, wait maybe 3 layers (always visible, always visible blocks light, sometimes visible)
+             */
 
-            render_pass.set_pipeline(&self.ui_render_pipeline);
-            render_pass.set_vertex_buffer(0, self.ui_layer.vertices.slice(..));
-            render_pass.set_index_buffer(self.ui_layer.indices.slice(..), wgpu::IndexFormat::Uint32);
-            render_pass.set_bind_group(0, &self.ui_bind_group, &[]);
-            render_pass.set_bind_group(1, &self.camera_bind_group, &[]);
-            render_pass.draw_indexed(0..self.ui_layer.length, 0, 0..1);
+            render_pass.set_pipeline(&self.t_render_pipeline);
+            render_pass.set_vertex_buffer(0, self.t_vertices.slice(..));
+            render_pass.set_index_buffer(self.t_indices.slice(..), wgpu::IndexFormat::Uint32);
+            render_pass.set_bind_group(0, &self.t_bind_group, &[]);
+            render_pass.set_bind_group(1, &self.t_camera_bind_group, &[]);
+            render_pass.draw_indexed(0..self.test_len, 0, 0..1);
 
+            //render_pass.set_pipeline(&self.t_render_pipeline2);
+            //render_pass.set_vertex_buffer(0, self.t_vertices2.slice(..));
+            //render_pass.draw(0..1, 0..1);
 
         }
 

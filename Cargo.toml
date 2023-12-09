@@ -17,6 +17,7 @@ anyhow = "1.0"
 tobj = { version = "3.2.1", features = [
     "async",
 ]}
+hecs = "0.10.4"
 
 [dependencies.image]
 version = "0.24"

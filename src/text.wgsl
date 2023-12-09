@@ -2,6 +2,7 @@
 
 struct CameraUniform {
     view_proj: mat4x4<f32>,
+    pos: vec2<f32>,
 }
 
 @group(1)@binding(0)
@@ -20,7 +21,12 @@ struct VertexInput {
 @vertex
 fn vs_main (in: VertexInput) -> VertexOutput {
     var out: VertexOutput;
-    out.clip_position = camera.view_proj * vec4(in.position, 1.0);
+    out.clip_position = (camera.view_proj * vec4(in.position - vec3(camera.pos, 0.0), 1.0));
+    // this one will move stuff basef on camera position, final use for all but ui
+
+    // out.clip_position = (camera.view_proj * vec4(in.position , 1.0));
+    // this one ignores camera position, final use for ui
+
     out.tex_coords = in.tex_coords;
 
     return out;
