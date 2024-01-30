@@ -43,18 +43,18 @@ var t_sampler: sampler;
 fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     let color: vec4<f32> = textureSample(t_sheet, t_sampler, in.tex_coords);
 
-    let a: f32  = color.w;
+    //let a: f32  = color.w;
 
-    var color_out: vec3<f32> = vec3(0.0, 0.0, 0.0);
+    //var color_out: vec3<f32> = vec3(0.0, 0.0, 0.0);
 
-    if (a > 0.0) {
-        color_out = vec3(in.clip_position.xy, 1.0);
-    }
-    if (a == 0.0) {
-        color_out = vec3(1.0, 0.0, 0.0);
-    }
+    //if (a > 0.0) {
+        //color_out = vec3(in.clip_position.xy, 1.0);
+    //}
+    //if (a == 0.0) {
+    //    color_out = vec3(1.0, 0.0, 0.0);
+    //}
 
-    return vec4<f32>(color_out, 0.5);
+    //return vec4<f32>(color_out, 0.5);
     //return vec4<f32>(in.clip_position.x,0.0,0.0, 1.0);
-    //return color;
+    return color;
 }

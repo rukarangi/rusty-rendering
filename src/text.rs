@@ -19,10 +19,10 @@ pub struct TextBuffers {
 impl TextVecs {
     pub fn from_quad(quad: CharacterQuad, offset: Option<u32>) -> Self {
         let offset: u32 = offset.unwrap_or(0);
-        let scale: f32 = 1.0 / 8.0;
+        let scale: f32 = 1.0 / 10.0;
 
-        let c_y = (quad.character / 8) as f32;
-        let c_x = (quad.character % 8) as f32;
+        let c_y = (quad.character / 10) as f32;
+        let c_x = (quad.character % 10) as f32;
 
         let tl = [c_x * scale, c_y * scale];
         let bl = [c_x * scale, c_y * scale + scale];
@@ -52,7 +52,7 @@ impl TextVecs {
             indices
         };
 
-        println!("\n{:?}\n", result);
+        //println!("\n{:?}\n", result);
 
         return result;
     }
@@ -100,7 +100,7 @@ impl TextVecs {
 }
 
 pub fn character_quads_from_str(text: &str, pos: Vec<f32>, fsize: f32) -> Vec<CharacterQuad> {
-    let CHARACTER_HASH: HashMap<char, u32> = HashMap::from(
+    /*let CHARACTER_HASH: HashMap<char, u32> = HashMap::from(
         [
             ('A', 0),
             ('B', 1),
@@ -176,7 +176,30 @@ pub fn character_quads_from_str(text: &str, pos: Vec<f32>, fsize: f32) -> Vec<Ch
                 character
             }
         })
+        .collect()*/
+
+    text.as_bytes()
+        .into_iter()
+        .enumerate()
+        .map(|(i, c)| {
+            let character = (*c as u32) - 32; // ascii offset for my texture
+
+            let size = [fsize, fsize];
+
+            let position = [pos[0] + (fsize * i as f32), pos[1], 0.0];
+
+            CharacterQuad {
+                position,
+                size,
+                character
+            }
+        })
         .collect()
+    
+    //let out = text.as_bytes()
+    //           .iter()
+    //            .map(|x| x - 32)
+    //            .collect();
 }
 
 #[repr(C)]

@@ -6,18 +6,20 @@ use winit::{
     event_loop::ControlFlow,
     window::Window,
 };
-use std::time;
+use std::{f32::consts::SQRT_2, time};
 
 mod text;
 mod texture;
 mod resources;
 mod camera;
+mod input_general;
 
 fn main() {
     pollster::block_on(run());
 }
 
 struct UIRenderable;
+struct Framerate (u32);
 
 async fn run() {
     env_logger::init();
@@ -31,16 +33,20 @@ async fn run() {
     let a_quad = text::CharacterQuad {
         position: [100.0, 100.0, 0.0],
         size: [50.0, 100.0],
-        character: 0,  
+        character: 97,  
     };
 
-    let a = state.world.spawn((UIRenderable, a_quad));
+    //let a = state.world.spawn((UIRenderable, a_quad));
+
+    let a_text = text::character_quads_from_str("Test", vec![150.0, 150.0, 0.0], 50.0);
+
+    let a = state.world.spawn((UIRenderable, a_text));
 
     state.ui_changed = true;
 
-    state.camera.modify_position(10.0, 10.0);
-    state.camera_uniform.update_proj(&state.camera);
-    state.queue.write_buffer(&state.camera_buffer, 0, bytemuck::cast_slice(&[state.camera_uniform]));
+    //state.camera.modify_position(10.0, 10.0);
+    //state.camera_uniform.update_proj(&state.camera);
+    //state.queue.write_buffer(&state.camera_buffer, 0, bytemuck::cast_slice(&[state.camera_uniform]));
 
     // ----------------------
 
@@ -52,16 +58,7 @@ async fn run() {
                 window_id,
             } if window_id == state.window().id() => if !state.input(event) { 
                 match event {
-                    WindowEvent::CloseRequested
-                    | WindowEvent::KeyboardInput {
-                        input:
-                            KeyboardInput {
-                                state: ElementState::Pressed,
-                                virtual_keycode: Some(VirtualKeyCode::Escape),
-                                ..
-                            },
-                        ..
-                    } => *control_flow = ControlFlow::Exit,
+                    WindowEvent::CloseRequested => *control_flow = ControlFlow::Exit,
                     WindowEvent::Resized(physical_size) => {
                         state.resize(*physical_size);
                     },
@@ -75,6 +72,7 @@ async fn run() {
                 let now = time::Instant::now();
                 let dt = now - last_render_time;
                 last_render_time = now;
+                state.input.next_frame();
                 state.update(dt);
                 match state.render() {
                     Ok(_) => {},
@@ -91,8 +89,6 @@ async fn run() {
     });
 }
 
-type RenderGroup = (wgpu::Buffer, wgpu::Buffer, u32);
-
 struct State {
     surface: wgpu::Surface,
     device: wgpu::Device,
@@ -101,6 +97,7 @@ struct State {
     size: winit::dpi::PhysicalSize<u32>,
     window: Window,
     world: hecs::World,
+    input: input_general::Input,
     ui_layer: text::TextBuffers,
     ui_changed: bool,
     ui_render_pipeline: wgpu::RenderPipeline,
@@ -110,6 +107,7 @@ struct State {
     camera_buffer: wgpu::Buffer,
     ui_bind_group: wgpu::BindGroup,
     ui_texture: texture::Texture,
+    framerate_entity: hecs::Entity,
 }
 
 impl State {
@@ -160,7 +158,9 @@ impl State {
         };
         surface.configure(&device, &config);
 
-        let world = hecs::World::new();
+        let mut world = hecs::World::new();
+
+        let input = input_general::Input::default();
 
         let camera = camera::Camera::new(800.0, 600.0, 0.0, 0.0);
 
@@ -210,8 +210,12 @@ impl State {
         let ui_layer = ui_empty.to_buffers(&device);
         let ui_changed = false;
 
-        let ui_texture = 
+        let ui_texture1 = 
             resources::load_texture("texture1_letters.png", &device, &queue)
+            .await
+            .unwrap();
+        let ui_texture = 
+            resources::load_texture("all_16x16.png", &device, &queue)
             .await
             .unwrap();
 
@@ -285,6 +289,9 @@ impl State {
             )
         };
 
+        let framerate_text = text::character_quads_from_str("0", vec![20.0, 20.0, 0.0], 20.0);
+        let framerate_entity = world.spawn((UIRenderable, Framerate(0), framerate_text));
+
         State {
             surface,
             device,
@@ -293,6 +300,7 @@ impl State {
             size,
             window,
             world,
+            input,
             camera,
             ui_layer,
             ui_changed,
@@ -302,6 +310,7 @@ impl State {
             camera_buffer,
             ui_bind_group,
             ui_texture,
+            framerate_entity,
         }
     }
 
@@ -325,21 +334,126 @@ impl State {
     }
 
     fn input(&mut self, event: &WindowEvent) -> bool {
-        false
+        match event {
+            WindowEvent::KeyboardInput {
+                input: key_ev,
+                ..
+            } => {
+                self.input.handle_key_event(*key_ev);
+                true
+            },
+            WindowEvent::MouseInput { state, button, .. } => {
+                self.input.handle_mouse_button(*state, *button);
+                true
+            },
+            WindowEvent::CursorMoved {  position, .. } => {
+                self.input.handle_mouse_move(*position);
+                true
+            },
+            _ => false
+        }
+        /*
+        With this it is easy to poll specific pressed keys, ie for continuous movement,
+        for events on the press just poll the difference between current and old. 
+         */
     }
 
     fn update(&mut self, dt: time::Duration) {
-        if self.ui_changed {
-            let mut elements: Vec<text::CharacterQuad> = Vec::new();
+        // display framerate
+        let mut elements: Vec<text::CharacterQuad> = Vec::new();
+        {
+            let millis = if dt.as_millis() == 0 { 1 } else { dt.as_millis() };
+            let framerate = (1000 / millis) as u32;
+            //let mut framerate_comp = self.world.get::<&mut Framerate>(self.framerate_entity).unwrap();
 
-            for (id, (ui, quad)) in self.world.query_mut::<(&UIRenderable, &text::CharacterQuad)>() {
-                elements.push(*quad);
+            //let mut framerate_e = self.world.query_mut::<(&Framerate, &UIRenderable, &Vec<text::CharacterQuad>)>().into_iter().next().unwrap();
+
+            //let prev = self.world.get::<&Framerate>(self.framerate_entity).unwrap();
+
+            let e = self.world.entity(self.framerate_entity).unwrap();
+
+            if framerate != e.get::<&Framerate>().unwrap().0 {
+                self.ui_changed = true;
+                //framerate_e.1.0 = &Framerate(framerate);
+                let framerate_text = text::character_quads_from_str(&framerate.to_string(), vec![20.0, 20.0, 0.0], 20.0);
+                //framerate_e.1.2 = &framerate_text;
+
+                
+
+                *e.get::<&mut Framerate>().unwrap() = Framerate(framerate);
+                *e.get::<&mut Vec<text::CharacterQuad>>().unwrap() = framerate_text;
+
+                //self.world.exchange::<(Framerate, Vec<text::CharacterQuad>), (Framerate, Vec<text::CharacterQuad>)>(self.framerate_entity, (Framerate(framerate), framerate_text));
+            }
+        }
+        
+        if self.ui_changed {
+
+            for (id, (ui, quad)) in self.world.query_mut::<(&UIRenderable, &Vec<text::CharacterQuad>)>() {
+                elements.extend(quad);
             }
 
             self.ui_layer = text::TextVecs::from_quads(&elements).to_buffers(&self.device);
 
             self.ui_changed = false;
         }
+
+        let speed = 1.0;
+        let mut moved = false;
+        let (mut x, mut y) = (0.0, 0.0);
+
+        let movement_keys = ( self.input.is_key_down(winit::event::VirtualKeyCode::Left)
+                            , self.input.is_key_down(winit::event::VirtualKeyCode::Right)
+                            , self.input.is_key_down(winit::event::VirtualKeyCode::Up)
+                            , self.input.is_key_down(winit::event::VirtualKeyCode::Down));
+        
+        match movement_keys {
+            (true, false, false, false) | (true, false, true, true) => { // Left
+                x = -speed;
+                moved = true;
+            },
+            (false, true, false, false) | (false, true, true, true) => { // Right
+                x = speed;
+                moved = true;
+            },
+            (false, false, true, false) | (true, true, true, false) => { // Up
+                y = speed;
+                moved = true;
+            },
+            (false, false, false, true) | (true, true, false, true) => { // Down
+                y = -speed;
+                moved = true;
+            },
+            (true, false, true, false) => { // Left & Up
+                x = -speed * SQRT_2;
+                y = speed * SQRT_2;
+                moved = true;
+            },
+            (false, true, true, false) => { // Right & Up
+                x = speed * SQRT_2;
+                y = speed * SQRT_2;
+                moved = true;
+            },
+            (true, false, false, true) => { // Left & Down
+                x = -speed * SQRT_2;
+                y = -speed * SQRT_2;
+                moved = true;
+            },
+            (false, true, false, true) => { // Right & Down
+                x = speed * SQRT_2;
+                y = -speed * SQRT_2;
+                moved = true;
+            },
+            _ => {},
+        }
+
+
+        if moved {
+            self.camera.modify_position(x, y);
+            self.camera_uniform.update_proj(&self.camera);
+            self.queue.write_buffer(&self.camera_buffer, 0, bytemuck::cast_slice(&[self.camera_uniform]));
+        }
+
     }
 
     fn render(&mut self) -> Result<(), wgpu::SurfaceError> {

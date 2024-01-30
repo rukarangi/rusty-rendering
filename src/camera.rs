@@ -84,6 +84,6 @@ impl CameraUniform {
         self.view_proj = camera.build_matrix().into();
         self.position = camera.position();
 
-        println!("{:?}", self);
+        //println!("{:?}", self);
     }
 }
